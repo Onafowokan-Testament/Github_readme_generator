@@ -4,28 +4,17 @@ import zipfile
 
 import streamlit as st
 
+from helpers import load_gitignore
+
+extract_path = "unzipped_folder"
+contents = []
+
+
 uploaded_zip = st.file_uploader(
     label="upload a ZIP file",
     type=["zip", "rar"],
     help="You can dowload  ziprar to zip your cold folder ",
 )
-extract_path = "unzipped_folder"
-ignored_patterns = set()
-
-
-def load_gitignore(path):
-    gitignore_path = os.path.join(path, ".gitignore")
-    if os.path.exists(gitignore_path):
-        with open(gitignore_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    ignored_patterns.add(line)
-    else:
-        print(
-            ".gitignore files do not exist. Please make sure a gitignore file exist in your root folder"
-        )
-    print(f"ignored patterns {ignored_patterns}")
 
 
 if uploaded_zip:
@@ -37,7 +26,7 @@ if uploaded_zip:
 
     st.success(f"Extracted files to `{extract_path}`")
 
-    load_gitignore(f"{extract_path}/{name}")
+    ignored_patterns = load_gitignore.load_gitignore(f"{extract_path}/{name}")
     print(f"{extract_path}/{name}")
 
 ALLOWED_EXTENSIONS = {"py", "tsx", "jsx", "ts", "js", "txt"}
@@ -52,7 +41,7 @@ def is_ignored(path):
 
 
 def list_files_with_extensions(startpath, indent=""):
-    global tree_structure
+    global tree_structure, contents
     for item in sorted(os.listdir(startpath)):
         fullpath = os.path.join(startpath, item)
 
@@ -63,15 +52,23 @@ def list_files_with_extensions(startpath, indent=""):
             list_files_with_extensions(fullpath, indent + "   ")
 
         else:
-
-            ext = item.split(".")[-1]
+            ext = item.split(".")[1]
             if ext in ALLOWED_EXTENSIONS:
+                if os.path.exists(fullpath):
+                    with open(fullpath, "r", encoding="utf-8") as f:
+                        contents.append(f.readlines())
+                else:
+                    print(f"no path like this{fullpath}")
+
                 tree_structure += f"{indent} 📄 {item} \n"
-    return tree_structure
+
+    return tree_structure, contents
 
 
 dir_structure = list_files_with_extensions(extract_path)
 
 
 print(ignored_patterns)
+print(dir_structure)
 st.write(dir_structure)
+print(contents)
