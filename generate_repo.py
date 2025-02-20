@@ -58,7 +58,7 @@ def summarize_code(file_name, code_content, progress_message=None):
         progress_message = f"📄 Summarizing `{file_name}`..."
     with st.status(progress_message):
         agent = Agent(
-            model=Groq(id="llama-3.3-70b-versatile"),
+            model=Groq(id="llama-3.3-70b-versatile", api_key=user_groq_api_key),
             instructions=[
                 f"Summarize the following code file in **one or two short sentences taking note of library used and what it is doing**:\n\n"
                 f"File: `{file_name}`\n"
