@@ -1,6 +1,9 @@
 import os
+import shutil
+import stat
 import subprocess
 from typing import Iterator
+
 import streamlit as st
 from dotenv import load_dotenv
 from phi.agent import Agent, RunResponse
@@ -28,10 +31,18 @@ ALLOWED_EXTENSIONS = {"py", "tsx", "jsx", "ts", "js", "txt"}
 MAX_FILE_SIZE = 5000
 
 
+def remove_readonly(func, path, exc_info):
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
+# Then, to remove the cloned repository:
+
+
 def clone_repo(repo_url):
     with st.status("🔄 Cloning repository..."):
         if os.path.exists(extract_path):
-            subprocess.run(["rmdir", "/s", "/q", extract_path], shell=True)
+            shutil.rmtree(extract_path, onerror=remove_readonly)
         os.makedirs(extract_path, exist_ok=True)
 
         try:
