@@ -1,8 +1,6 @@
-import io
 import os
-import zipfile
+import subprocess
 from typing import Iterator
-
 import streamlit as st
 from dotenv import load_dotenv
 from phi.agent import Agent, RunResponse
@@ -12,16 +10,31 @@ from phi.utils.pprint import pprint_run_response
 
 load_dotenv()
 
-
 ignored_patterns = set()
-extract_path = "unzipped_folder"
-contents = []
+extract_path = "cloned_repo"
 tree_structure = ""
 ALLOWED_EXTENSIONS = {"py", "tsx", "jsx", "ts", "js", "txt"}
+MAX_FILE_SIZE = 5000  # Limit file content size in characters
+
+
+def clone_repo(repo_url):
+    """Clone the GitHub repository into a local directory."""
+    if os.path.exists(extract_path):
+        subprocess.run(["rm", "-rf", extract_path])
+    os.makedirs(extract_path, exist_ok=True)
+
+    try:
+        subprocess.run(["git", "clone", repo_url, extract_path], check=True)
+        st.success(f"Repository cloned successfully: `{repo_url}`")
+    except subprocess.CalledProcessError:
+        st.error("Failed to clone the repository. Please check the URL.")
+        return None
+
+    return extract_path
 
 
 def load_gitignore(path):
-    global ignored_patterns
+    """Load patterns from the .gitignore file."""
     gitignore_path = os.path.join(path, ".gitignore")
     if os.path.exists(gitignore_path):
         with open(gitignore_path, "r") as f:
@@ -29,22 +42,44 @@ def load_gitignore(path):
                 line = line.strip()
                 if line and not line.startswith("#"):
                     ignored_patterns.add(line)
-    else:
-        print(
-            ".gitignore files do not exist. Please make sure a gitignore file exist in your root folder"
-        )
-    return ignored_patterns
 
 
 def is_ignored(path):
+    """Check if a file or folder should be ignored."""
     for pattern in ignored_patterns:
         if pattern in path:
             return True
     return False
 
 
-def list_files_with_extensions(startpath, indent=""):
-    global tree_structure, contents
+def summarize_code(file_name, code_content):
+    """Ask Groq to summarize the content of a file in a few words."""
+    agent = Agent(
+        model=Groq(id="llama-3.3-70b-versatile"),
+        instructions=[
+            f"Summarize the following code file in **one or two sentences**:\n\n"
+            f"File: `{file_name}`\n"
+            f"```\n{code_content}\n```"
+        ],
+        description="Summarizes code files briefly.",
+    )
+
+    response_stream: RunResponse = agent.run("Summarize this file")
+
+    try:
+        print(f"response stream {response_stream}")
+        print(f"response stream {response_stream.content}")
+        return response_stream.content
+    except Exception as e:
+        print(f"Error summarizing {file_name}: {e}")
+        return "No summary available."
+
+
+def list_files_and_summarize(startpath, indent=""):
+    """List relevant files and summarize their contents."""
+    global tree_structure
+    summaries = {}
+
     for item in sorted(os.listdir(startpath)):
         fullpath = os.path.join(startpath, item)
 
@@ -53,93 +88,78 @@ def list_files_with_extensions(startpath, indent=""):
 
         if os.path.isdir(fullpath):
             tree_structure += f"{indent}📂 {item}/ \n"
-            list_files_with_extensions(fullpath, indent + "   ")
+            list_files_and_summarize(fullpath, indent + "   ")
         else:
-            ext = item.split(".")[1] if len(item.split(".")) > 1 else ""
-
+            ext = item.split(".")[-1] if "." in item else ""
             if ext in ALLOWED_EXTENSIONS:
                 with open(fullpath, "r", encoding="utf-8") as f:
-                    contents.append(f.read())
+                    content = f.read()
+                    if len(content) > MAX_FILE_SIZE:
+                        content = content[:MAX_FILE_SIZE] + "\n... (truncated)"
+
+                    # Summarize file content
+                    summary = summarize_code(item, content)
+                    summaries[item] = summary
+
                 tree_structure += f"{indent} 📄 {item} \n"
 
-    return tree_structure, contents
+    return tree_structure, summaries
 
 
-uploaded_zip = st.file_uploader(
-    label="upload a ZIP file",
-    type=["zip", "rar"],
-    help="You can download ziprar to zip your code folder",
-)
-if uploaded_zip:
-    name = uploaded_zip.name.split(".")[0]
-    os.makedirs(extract_path, exist_ok=True)
+# Get GitHub repository URL from user
+repo_url = st.text_input("Enter the GitHub repository URL:")
 
-    with zipfile.ZipFile(io.BytesIO(uploaded_zip.read()), "r") as zip_ref:
-        zip_ref.extractall(extract_path)
+if repo_url:
+    repo_path = clone_repo(repo_url)
+    if repo_path:
+        load_gitignore(repo_path)
+        dir_structure, file_summaries = list_files_and_summarize(repo_path)
+        st.write(dir_structure)
 
-    st.success(f"Extracted files to `{extract_path}`")
-
-    load_gitignore(f"{extract_path}/{name}")
-
-dir_structure, contents = list_files_with_extensions(extract_path)
-
-print(ignored_patterns)
-print(dir_structure)
-st.write(dir_structure)
-print(contents)
-
-
+# Set up API keys for GitHub and Groq
 github_access_token = os.getenv("GITHUB_ACCESS_TOKEN")
 groq_api_key = os.getenv("GROQ_API_KEY")
 
 if not groq_api_key:
-    raise ValueError(
-        "GROQ_API_KEY environment variable is not set. Please set it in the .env file."
-    )
-
-os.environ["GROQ_API_KEY"] = groq_api_key
+    raise ValueError("GROQ_API_KEY is not set in the environment variables.")
 
 github = GithubTools(access_token=github_access_token)
 
+# Convert summaries into a readable format
+summary_text = "\n".join(
+    [f"**{file}**: {summary}" for file, summary in file_summaries.items()]
+)
 
+# Define the AI agent for README generation
 agent = Agent(
-    model=Groq(id="llama-3.3-70b-versatile"),
+    model=Groq(id="llama-3.3-70b-versatile"),  # Use a smaller model
     instructions=[
         f"""
-       Final Prompt (For Any Language)
-You are an expert in software documentation. I will provide you with:
+    You are an expert in software documentation. Generate a professional README.md file based on:
 
-The cleaned directory structure of a project (only relevant files and folders).
-The main source code files in one or more programming languages.
-Your task is to:
+    **Project Directory Structure:**
+    ```
+    {tree_structure}
+    ```
 
-Detect the programming language(s) used in the project.
-Use best practices for documentation in each detected language.
-Generate a structured and professional README.md file.
+    **File Summaries:**
+    {summary_text}
 
-Copy code
-{tree_structure}
-Main Source Code Files:
-
-csharp
-Copy code
-{contents}
-⚠️ Note: The directory structure has already been cleaned—unnecessary files and folders have been removed. Please focus only on relevant parts.
-
-Now, generate a professional README.md file based on this information, using proper documentation conventions for each detected programming language.
-
-Would you like me to generate a README for a specific project using this approach? 🚀,""",
+    Detect programming languages and use best documentation practices for each. Follow conventions for Python, JavaScript, TypeScript, C++, Java, or any other detected language.
+    """
     ],
-    description="You are a professional developer that creates a README for a GitHub project.",
+    description="Creates a README for a GitHub project.",
 )
 
-# Run the agent to generate the README
-response_stream: Iterator[RunResponse] = agent.run(
-    "create a readme file for this repository"
-)
+# Run the AI agent to generate the README
+if repo_url:
+    response_stream: Iterator[RunResponse] = agent.run(
+        "Create a README file for this repository"
+    )
 
-# Print the response in Markdown format
-try:
-    pprint_run_response(response_stream, markdown=True)
-except Exception as e:
-    print(f"An error occurred while trying to create the README file: {e}")
+    try:
+        pprint_run_response(response_stream, markdown=True)
+    except Exception as e:
+        print(f"Error generating README: {e}")
+        print(f"Error generating README: {e}")
+        print(f"Error generating README: {e}")
