@@ -16,6 +16,7 @@ user_groq_api_key = st.text_input("Enter your Groq API Key:", type="password")
 if user_groq_api_key:
     os.environ["GROQ_API_KEY"] = user_groq_api_key
 total_file_count = 0
+current_file_index = 0
 
 # Initialize per-session state instead of globals
 if "ignored_patterns" not in st.session_state:
@@ -23,8 +24,6 @@ if "ignored_patterns" not in st.session_state:
 if "tree_structure" not in st.session_state:
     st.session_state.tree_structure = ""
 
-if "current_file_index" not in st.session_state:
-    st.session_state.current_file_index = 0
 
 extract_path = "cloned_repo"
 ALLOWED_EXTENSIONS = {"py", "tsx", "jsx", "ts", "js", "txt"}
@@ -88,6 +87,7 @@ def summarize_code(file_name, code_content, progress_message=None):
 def list_files_and_summarize(startpath, indent=""):
     summaries = {}
     for item in sorted(os.listdir(startpath)):
+        global current_file_index
         fullpath = os.path.join(startpath, item)
         if os.path.isdir(fullpath):
             st.session_state.tree_structure += f"{indent}📂 {item}/ \n"
@@ -99,8 +99,8 @@ def list_files_and_summarize(startpath, indent=""):
                     content = f.read()
                     if len(content) > MAX_FILE_SIZE:
                         content = content[:MAX_FILE_SIZE] + "\n... (truncated)"
-                    st.session_state.current_file_index += 1
-                    progress_message = f"📄 Summarizing `{item}`... ({st.session_state.current_file_index}/{total_file_count})"
+                    current_file_index += 1
+                    progress_message = f"📄 Summarizing `{item}`... ({current_file_index}/{total_file_count})"
                     summaries[item] = summarize_code(
                         item, content, progress_message=progress_message
                     )
