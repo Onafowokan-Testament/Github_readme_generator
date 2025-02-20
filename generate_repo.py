@@ -15,14 +15,14 @@ load_dotenv()
 user_groq_api_key = st.text_input("Enter your Groq API Key:", type="password")
 if user_groq_api_key:
     os.environ["GROQ_API_KEY"] = user_groq_api_key
+total_file_count = 0
 
 # Initialize per-session state instead of globals
 if "ignored_patterns" not in st.session_state:
     st.session_state.ignored_patterns = set()
 if "tree_structure" not in st.session_state:
     st.session_state.tree_structure = ""
-if "total_file_count" not in st.session_state:
-    st.session_state.total_file_count = 0
+
 if "current_file_index" not in st.session_state:
     st.session_state.current_file_index = 0
 
@@ -100,7 +100,7 @@ def list_files_and_summarize(startpath, indent=""):
                     if len(content) > MAX_FILE_SIZE:
                         content = content[:MAX_FILE_SIZE] + "\n... (truncated)"
                     st.session_state.current_file_index += 1
-                    progress_message = f"📄 Summarizing `{item}`... ({st.session_state.current_file_index}/{st.session_state.total_file_count})"
+                    progress_message = f"📄 Summarizing `{item}`... ({st.session_state.current_file_index}/{total_file_count})"
                     summaries[item] = summarize_code(
                         item, content, progress_message=progress_message
                     )
@@ -113,7 +113,7 @@ repo_url = st.text_input("Enter the GitHub repository URL:")
 if repo_url:
     repo_path = clone_repo(repo_url)
     if repo_path:
-        st.session_state.total_file_count = count_allowed_files(repo_path)
+        total_file_count = count_allowed_files(repo_path)
         st.write("### 📂 Project Structure:")
         dir_structure, file_summaries = list_files_and_summarize(repo_path)
         st.code(dir_structure, language="markdown")
