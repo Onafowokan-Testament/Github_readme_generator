@@ -1,7 +1,6 @@
 phidata
 PyGithub
 python-dotenv
-Iterator
 openai
 groq
 gitpython
@@ -9,3 +8,4 @@ zipfile
 streamlit
 uvicorn 
 fastapi
+typing
